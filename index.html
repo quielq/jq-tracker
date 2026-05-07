@@ -509,8 +509,10 @@
                 <div class="tabs">
                     <button class="tab-button active" id="tab-alltime"
                         onclick="switchSummaryTab('alltime', this)">All-Time</button>
-                    <button class="tab-button" id="tab-monthly" onclick="switchSummaryTab('monthly', this)">Current
-                        Month</button>
+                    <select id="monthSelect" onchange="switchToMonth(this.value)"
+                        style="padding: 10px 15px; border: none; background: #f0f0f0; border-radius: 6px; font-size: 0.95em;">
+                        <option value="">Select Month</option>
+                    </select>
                 </div>
                 <div id="summaryContent" class="loading"><span class="spinner"></span>Loading…</div>
             </div>
@@ -591,6 +593,7 @@
             if (SUPABASE_URL === 'YOUR_SUPABASE_URL') {
                 allExpenses = getSampleData();
                 renderAll();
+                updateMonthOptions();
                 return;
             }
 
@@ -607,6 +610,24 @@
                 allExpenses = [];
             }
             renderAll();
+            updateMonthOptions();
+        }
+
+        function updateMonthOptions() {
+            const months = [...new Set(allExpenses.map(e => getMonthKey(e.date)))].sort().reverse();
+            const select = document.getElementById('monthSelect');
+            select.innerHTML = '<option value="">Select Month</option>';
+            months.forEach(month => {
+                const option = document.createElement('option');
+                option.value = month;
+                const date = new Date(month + '-01');
+                option.textContent = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+                select.appendChild(option);
+            });
+            // Set current selection
+            if (currentSummaryTab !== 'alltime') {
+                select.value = currentSummaryTab;
+            }
         }
 
         // ── Add ───────────────────────────────────────────────────────────────────────
@@ -633,6 +654,7 @@
                 // Demo mode — store in memory only
                 allExpenses.unshift({ ...record, id: Date.now(), created_at: new Date().toISOString() });
                 renderAll();
+                updateMonthOptions();
                 showStatus('✅ Added (demo mode — not saved to DB)', 'success');
                 clearForm();
                 btn.disabled = false; btn.textContent = 'Add Expense';
@@ -644,6 +666,7 @@
                 if (error) throw error;
                 allExpenses.unshift(data);
                 renderAll();
+                updateMonthOptions();
                 showStatus('✅ Expense added!', 'success');
                 clearForm();
             } catch (e) {
@@ -665,6 +688,7 @@
 
             allExpenses = allExpenses.filter(e => e.id !== id);
             renderAll();
+            updateMonthOptions();
         }
 
         // ── Settle up ─────────────────────────────────────────────────────────────────
@@ -700,6 +724,7 @@
                 allExpenses.unshift({ ...record, id: Date.now(), created_at: new Date().toISOString() });
             }
             renderAll();
+            updateMonthOptions();
             showStatus('✅ Settlement recorded!', 'success');
         }
 
@@ -713,8 +738,7 @@
         function getMonthKey(d) { return d.substring(0, 7); }
 
         function renderSummary() {
-            const isMonthly = currentSummaryTab === 'monthly';
-            const expenses = isMonthly ? allExpenses.filter(e => getMonthKey(e.date) === getMonthKey(today())) : allExpenses;
+            const expenses = currentSummaryTab === 'alltime' ? allExpenses : allExpenses.filter(e => getMonthKey(e.date) === currentSummaryTab);
 
             let jillOwes = 0; // positive = Jill owes Quiel
             let quielOwes = 0; // positive = Quiel owes Jill
@@ -741,7 +765,7 @@
                 const ower = net > 0 ? 'Quiel' : 'Jill';
                 const owee = net > 0 ? 'Jill' : 'Quiel';
                 const owedAmt = Math.abs(net).toFixed(2);
-                const period = isMonthly ? 'this month' : 'overall';
+                const period = currentSummaryTab === 'alltime' ? 'overall' : 'this period';
                 settlementHtml = `
             <div class="settlement">
                 <strong>👉 ${ower} owes ${owee}: ₱${owedAmt}</strong><br>
@@ -752,10 +776,10 @@
                 </div>
             </div>`;
             } else if (total > 0) {
-                const period = isMonthly ? 'this month' : 'overall';
+                const period = currentSummaryTab === 'alltime' ? 'overall' : 'this period';
                 settlementHtml = `<div class="settlement balanced"><strong>✅ All settled ${period}!</strong></div>`;
             } else {
-                const period = isMonthly ? 'this month' : '';
+                const period = currentSummaryTab === 'alltime' ? '' : 'this period';
                 settlementHtml = `<div class="settlement"><strong>No expenses ${period} yet.</strong></div>`;
             }
 
@@ -778,10 +802,10 @@
     `;
         }
 
-        function switchSummaryTab(tab, el) {
-            currentSummaryTab = tab;
-            document.querySelectorAll('#tab-alltime, #tab-monthly').forEach(b => b.classList.remove('active'));
-            el.classList.add('active');
+        function switchToMonth(monthKey) {
+            if (!monthKey) return;
+            currentSummaryTab = monthKey;
+            document.getElementById('tab-alltime').classList.remove('active');
             renderSummary();
             renderCategoryBreakdown();
         }
@@ -813,8 +837,7 @@
         }
 
         function renderCategoryBreakdown() {
-            const isMonthly = currentSummaryTab === 'monthly';
-            const expenses = isMonthly ? allExpenses.filter(e => getMonthKey(e.date) === getMonthKey(today())) : allExpenses;
+            const expenses = currentSummaryTab === 'alltime' ? allExpenses : allExpenses.filter(e => getMonthKey(e.date) === currentSummaryTab);
             const filteredExp = expenses.filter(e => e.category !== 'Settlement');
 
             const breakdown = {};
@@ -822,7 +845,7 @@
             const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
 
             if (!sorted.length) {
-                const period = isMonthly ? 'this month' : 'yet';
+                const period = currentSummaryTab === 'alltime' ? 'yet' : 'this period';
                 document.getElementById('categoryBreakdown').innerHTML = `<div class="loading">No expenses ${period}</div>`;
                 return;
             }
