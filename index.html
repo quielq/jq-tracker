@@ -503,22 +503,23 @@
                 </div>
             </div>
 
-            <!-- Monthly Summary -->
+            <!-- Summary -->
             <div class="card">
-                <h2>📊 Monthly Summary</h2>
-                <div id="monthlySummary" class="loading"><span class="spinner"></span>Loading…</div>
+                <h2>📊 Summary</h2>
+                <div class="tabs">
+                    <button class="tab-button active" id="tab-alltime"
+                        onclick="switchSummaryTab('alltime', this)">All-Time</button>
+                    <button class="tab-button" id="tab-monthly" onclick="switchSummaryTab('monthly', this)">Current
+                        Month</button>
+                </div>
+                <div id="summaryContent" class="loading"><span class="spinner"></span>Loading…</div>
             </div>
         </div>
 
         <!-- Expenses list + Category breakdown -->
         <div class="main-grid">
             <div class="card">
-                <h2>📝 Recent Expenses</h2>
-                <div class="tabs">
-                    <button class="tab-button active" id="tab-all" onclick="switchTab('all',   this)">All</button>
-                    <button class="tab-button" id="tab-jill" onclick="switchTab('jill',  this)">Jill's</button>
-                    <button class="tab-button" id="tab-quiel" onclick="switchTab('quiel', this)">Quiel's</button>
-                </div>
+                <h2>📝 All Expenses</h2>
                 <div id="expensesList" class="expenses-list loading"><span class="spinner"></span>Loading…</div>
             </div>
 
@@ -548,7 +549,7 @@
         const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let allExpenses = [];
-        let currentTab = 'all';
+        let currentSummaryTab = 'alltime';
         let settleAmount = 0;
         let settleOwer = '';
 
@@ -704,21 +705,21 @@
 
         // ── Render helpers ────────────────────────────────────────────────────────────
         function renderAll() {
-            renderMonthlySummary();
+            renderSummary();
             renderExpensesList();
             renderCategoryBreakdown();
         }
 
         function getMonthKey(d) { return d.substring(0, 7); }
 
-        function renderMonthlySummary() {
-            const currentMonth = getMonthKey(today());
-            const monthExpenses = allExpenses.filter(e => getMonthKey(e.date) === currentMonth);
+        function renderSummary() {
+            const isMonthly = currentSummaryTab === 'monthly';
+            const expenses = isMonthly ? allExpenses.filter(e => getMonthKey(e.date) === getMonthKey(today())) : allExpenses;
 
             let jillOwes = 0; // positive = Jill owes Quiel
             let quielOwes = 0; // positive = Quiel owes Jill
 
-            monthExpenses.forEach(e => {
+            expenses.forEach(e => {
                 if (e.split_type === 'shared') {
                     const half = e.amount / 2;
                     if (e.paid_by === 'Jill') quielOwes += half;
@@ -731,15 +732,16 @@
             });
 
             const net = quielOwes - jillOwes; // positive = Quiel owes Jill, negative = Jill owes Quiel
-            const total = monthExpenses.reduce((s, e) => s + e.amount, 0);
-            const jillPaid = monthExpenses.filter(e => e.paid_by === 'Jill').reduce((s, e) => s + e.amount, 0);
-            const quielPaid = monthExpenses.filter(e => e.paid_by === 'Quiel').reduce((s, e) => s + e.amount, 0);
+            const total = expenses.reduce((s, e) => s + e.amount, 0);
+            const jillPaid = expenses.filter(e => e.paid_by === 'Jill').reduce((s, e) => s + e.amount, 0);
+            const quielPaid = expenses.filter(e => e.paid_by === 'Quiel').reduce((s, e) => s + e.amount, 0);
 
             let settlementHtml = '';
             if (Math.abs(net) > 0.01) {
                 const ower = net > 0 ? 'Quiel' : 'Jill';
                 const owee = net > 0 ? 'Jill' : 'Quiel';
                 const owedAmt = Math.abs(net).toFixed(2);
+                const period = isMonthly ? 'this month' : 'overall';
                 settlementHtml = `
             <div class="settlement">
                 <strong>👉 ${ower} owes ${owee}: ₱${owedAmt}</strong><br>
@@ -750,12 +752,14 @@
                 </div>
             </div>`;
             } else if (total > 0) {
-                settlementHtml = `<div class="settlement balanced"><strong>✅ All settled this month!</strong></div>`;
+                const period = isMonthly ? 'this month' : 'overall';
+                settlementHtml = `<div class="settlement balanced"><strong>✅ All settled ${period}!</strong></div>`;
             } else {
-                settlementHtml = `<div class="settlement"><strong>No expenses this month yet.</strong></div>`;
+                const period = isMonthly ? 'this month' : '';
+                settlementHtml = `<div class="settlement"><strong>No expenses ${period} yet.</strong></div>`;
             }
 
-            document.getElementById('monthlySummary').innerHTML = `
+            document.getElementById('summaryContent').innerHTML = `
         <div class="summary-section">
             <div class="summary-item">
                 <span class="summary-label">Total Expenses</span>
@@ -774,11 +778,12 @@
     `;
         }
 
-        function switchTab(tab, el) {
-            currentTab = tab;
-            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        function switchSummaryTab(tab, el) {
+            currentSummaryTab = tab;
+            document.querySelectorAll('#tab-alltime, #tab-monthly').forEach(b => b.classList.remove('active'));
             el.classList.add('active');
-            renderExpensesList();
+            renderSummary();
+            renderCategoryBreakdown();
         }
 
         function splitLabel(type) {
@@ -787,8 +792,6 @@
 
         function renderExpensesList() {
             let list = [...allExpenses];
-            if (currentTab === 'jill') list = list.filter(e => e.paid_by === 'Jill');
-            if (currentTab === 'quiel') list = list.filter(e => e.paid_by === 'Quiel');
             list.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             if (!list.length) {
@@ -800,7 +803,7 @@
         <div class="expense-item ${e.category === 'Settlement' ? 'settled-item' : ''}">
             <div class="expense-details">
                 <div class="expense-description">${e.description}</div>
-                <div class="expense-meta">${e.paid_by} · ${e.category} · ${new Date(e.date + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} ${splitLabel(e.split_type)}</div>
+            <div class="expense-meta">${e.paid_by} · ${e.category} · ${new Date(e.date + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} ${splitLabel(e.split_type)}</div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
                 <div class="expense-amount">₱${Number(e.amount).toFixed(2)}</div>
@@ -810,15 +813,17 @@
         }
 
         function renderCategoryBreakdown() {
-            const currentMonth = getMonthKey(today());
-            const monthExp = allExpenses.filter(e => getMonthKey(e.date) === currentMonth && e.category !== 'Settlement');
+            const isMonthly = currentSummaryTab === 'monthly';
+            const expenses = isMonthly ? allExpenses.filter(e => getMonthKey(e.date) === getMonthKey(today())) : allExpenses;
+            const filteredExp = expenses.filter(e => e.category !== 'Settlement');
 
             const breakdown = {};
-            monthExp.forEach(e => breakdown[e.category] = (breakdown[e.category] || 0) + e.amount);
+            filteredExp.forEach(e => breakdown[e.category] = (breakdown[e.category] || 0) + e.amount);
             const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
 
             if (!sorted.length) {
-                document.getElementById('categoryBreakdown').innerHTML = '<div class="loading">No expenses this month</div>';
+                const period = isMonthly ? 'this month' : 'yet';
+                document.getElementById('categoryBreakdown').innerHTML = `<div class="loading">No expenses ${period}</div>`;
                 return;
             }
 
